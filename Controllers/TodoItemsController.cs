@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TodoApi.Models;
+using Microsoft.Azure.Cosmos.Table;
+
 
 namespace TodoApi.Controllers
 {
@@ -14,17 +16,29 @@ namespace TodoApi.Controllers
     public class TodoItemsController : ControllerBase
     {
         private readonly TodoContext _context;
+        private CloudTable table = Common.CreateTable("table");
 
         public TodoItemsController(TodoContext context)
         {
             _context = context;
+            // https://stackoverflow.com/questions/8145479/can-constructors-be-async
         }
 
         // GET: api/TodoItems
         [HttpGet]
         public async Task<ActionResult<IEnumerable<TodoItem>>> GetTodoItems()
         {
-            return await _context.TodoItems.ToListAsync();
+            // https://stackoverflow.com/questions/38748426/get-all-records-from-azure-table-storage
+            TableQuery<TodoEntity> query = new TableQuery<TodoEntity>();
+            List<TodoItem> items = new List<TodoItem>();
+
+            foreach (TodoEntity entity in table.ExecuteQuery(query)) {
+                items.Add(new TodoItem() {Id = entity.Uuid, Content = entity.Content});
+            }
+            
+            return items;
+
+            // return await _context.TodoItems.ToListAsync();
         }
 
         // GET: api/TodoItems/5
@@ -41,37 +55,6 @@ namespace TodoApi.Controllers
             return todoItem;
         }
 
-        // // PUT: api/TodoItems/5
-        // // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        // [HttpPut("{id}")]
-        // public async Task<IActionResult> PutTodoItem(long id, TodoItem todoItem)
-        // {
-        //     if (id != todoItem.Id)
-        //     {
-        //         return BadRequest();
-        //     }
-
-        //     _context.Entry(todoItem).State = EntityState.Modified;
-
-        //     try
-        //     {
-        //         await _context.SaveChangesAsync();
-        //     }
-        //     catch (DbUpdateConcurrencyException)
-        //     {
-        //         if (!TodoItemExists(id))
-        //         {
-        //             return NotFound();
-        //         }
-        //         else
-        //         {
-        //             throw;
-        //         }
-        //     }
-
-        //     return NoContent();
-        // }
-
         // POST: api/TodoItems
         // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
@@ -80,6 +63,12 @@ namespace TodoApi.Controllers
             _context.TodoItems.Add(todoItem);
             await _context.SaveChangesAsync();
 
+            TodoEntity entity = new TodoEntity(todoItem.Id, todoItem.Content) {
+                Uuid = todoItem.Id,
+                Content = todoItem.Content
+            };
+            await Table.InsertOrMergeEntityAsync(table, entity);
+
             return CreatedAtAction("GetTodoItem", new { id = todoItem.Id }, todoItem);
         }
 
@@ -87,13 +76,10 @@ namespace TodoApi.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTodoItem(string id)
         {
-            var todoItem = await _context.TodoItems.FindAsync(id);
-            if (todoItem == null)
-            {
-                return NotFound();
-            }
+            TodoEntity entity = await Table.RetrieveEntityUsingPointQueryAsync(table, id, id);
+            if (entity == null) return NotFound();
 
-            _context.TodoItems.Remove(todoItem);
+            await Table.DeleteEntityAsync(table, entity);
             await _context.SaveChangesAsync();
 
             return NoContent();
