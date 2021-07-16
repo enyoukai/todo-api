@@ -32,10 +32,23 @@ namespace TodoApi.Controllers
             TableQuery<TodoEntity> query = new TableQuery<TodoEntity>();
             List<TodoItem> items = new List<TodoItem>();
 
-            foreach (TodoEntity entity in table.ExecuteQuery(query)) {
-                items.Add(new TodoItem() {Id = entity.Uuid, Content = entity.Content});
+            // foreach (TodoEntity entity in table.ExecuteQuery(query)) { // how do i make this asynchronous
+            //     items.Add(new TodoItem() {Id = entity.Uuid, Content = entity.Content});
+            //     Console.WriteLine("here");
+            // }
+
+            TableContinuationToken continuationToken = null;
+            do
+            {
+                var page = await table.ExecuteQuerySegmentedAsync(query, continuationToken);
+                continuationToken = page.ContinuationToken;
+                foreach (TodoEntity entity in page.Results) {
+                    items.Add(new TodoItem() {Id = entity.Uuid, Content = entity.Content});
+                }
+
             }
-            
+            while (continuationToken != null);
+
             return items;
 
             // return await _context.TodoItems.ToListAsync();
